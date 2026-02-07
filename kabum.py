@@ -1,62 +1,53 @@
-# kabum.py
-from curl_cffi import requests
-from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
 import db
-import utils # Agora com headers aleatórios
 
 def buscar(termo):
-    print(f"--- [KABUM] Buscando: {termo} ---")
-    url = f"https://www.kabum.com.br/busca/{termo.replace(' ', '-')}"
+    print(f"🕵️‍♂️ [KABUM] Iniciando busca invisível por: {termo}")
     
-    # 1. Pega headers aleatórios
-    headers_ninja = utils.obter_headers_aleatorios()
-
-    try:
-        # 2. Faz a requisição com os headers falsos
-        response = requests.get(url, impersonate="chrome", headers=headers_ninja, timeout=20)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(viewport={"width": 1920, "height": 1080})
+        page = context.new_page()
         
-        # 3. Pausa para não parecer ataque DDoS
-        utils.pausa_humana()
-
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # ESTRATÉGIA GENÉRICA (BUSCAR LINKS COM /PRODUTO/)
-        links = soup.find_all('a', href=True)
-        
-        count = 0
-        urls_vistas = set()
-
-        for link in links:
-            href = link['href']
-            texto = link.get_text(separator=" ", strip=True)
+        try:
+            page.goto(f"https://www.kabum.com.br/busca/{termo.replace(' ', '-')}", timeout=60000)
+            page.wait_for_selector("article", timeout=15000)
             
-            # Filtro: Link de produto + Tem "R$"
-            if "/produto/" in href and "R$" in texto:
-                
-                full_url = "https://www.kabum.com.br" + href
-                if full_url in urls_vistas: continue
-                
-                preco = utils.limpar_preco(texto)
-                if preco < 100: continue 
-                
-                # Tenta achar nome na imagem ou no texto
-                nome = "Produto Kabum"
-                img = link.find('img')
-                if img and img.get('alt'):
-                    nome = img.get('alt')
-                else:
-                    nome = texto.split("R$")[0].strip()[:100]
+            produtos = page.query_selector_all("article")
+            count = 0
+            
+            for prod in produtos:
+                try:
+                    # Quebra todo o texto do cartão em linhas
+                    linhas = prod.inner_text().split('\n')
+                    
+                    # 1. Achar o Nome: Geralmente é a linha mais longa do cartão
+                    # (Removemos linhas de frete/review para não confundir)
+                    linhas_validas = [l for l in linhas if len(l) > 10 and "R$" not in l and "Review" not in l]
+                    nome = max(linhas_validas, key=len) if linhas_validas else "Nome não detectado"
 
-                db.salvar_preco({
-                    "nome": nome,
-                    "preco": preco,
-                    "concorrente": "Kabum",
-                    "url": full_url
-                })
-                urls_vistas.add(full_url)
-                count += 1
+                    # 2. Achar o Preço: Procura a linha que tem "R$"
+                    preco_raw = next((l for l in linhas if "R$" in l), None)
+                    
+                    # Pegar Link
+                    link_el = prod.query_selector("a")
+                    full_url = "https://www.kabum.com.br" + link_el.get_attribute("href") if link_el else ""
 
-        print(f"--- [KABUM] Sucesso: {count} itens encontrados. ---")
+                    if preco_raw and nome:
+                        db.salvar_preco({
+                            "nome": nome[:150],
+                            "preco": preco_raw, # Manda como TEXTO mesmo
+                            "concorrente": "Kabum",
+                            "url": full_url
+                        })
+                        count += 1
+                        
+                except Exception:
+                    continue
 
-    except Exception as e:
-        print(f"[KABUM ERRO] {e}")
+            print(f"✅ [KABUM] Finalizado. {count} itens salvos.")
+
+        except Exception as e:
+            print(f"❌ [KABUM] Erro: {e}")
+        finally:
+            browser.close()

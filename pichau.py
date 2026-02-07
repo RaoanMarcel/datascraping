@@ -1,49 +1,71 @@
-# pichau.py
-from curl_cffi import requests
-from bs4 import BeautifulSoup
+# pichau.py (Versão Final Stealth)
+from playwright.sync_api import sync_playwright
 import db
-import utils
 
 def buscar(termo):
-    print(f"--- [PICHAU] Buscando: {termo} ---")
-    url = f"https://www.pichau.com.br/search?q={termo.replace(' ', '+')}"
+    print(f"🕵️‍♂️ [PICHAU] Iniciando busca invisível por: {termo}")
     
-    headers_ninja = utils.obter_headers_aleatorios()
-    
-    try:
-        response = requests.get(url, impersonate="chrome", headers=headers_ninja, timeout=20)
-        utils.pausa_humana()
+    with sync_playwright() as p:
+        # headless=True VOLTOU, mas com argumentos extras para parecer humano
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled"] # Truque anti-bot
+        )
         
-        soup = BeautifulSoup(response.content, 'html.parser')
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        )
+        page = context.new_page()
         
-        links = soup.find_all('a', href=True)
-        count = 0
-        urls_vistas = set()
-
-        for link in links:
-            texto = link.get_text(separator=" ", strip=True)
-            href = link['href']
+        url = f"https://www.pichau.com.br/search?q={termo.replace(' ', '+')}"
+        
+        try:
+            page.goto(url, timeout=60000, wait_until="domcontentloaded")
             
-            if "R$" in texto:
-                full_url = href if href.startswith('http') else f"https://www.pichau.com.br{href}"
-                if full_url in urls_vistas: continue
-                
-                preco = utils.limpar_preco(texto)
-                if preco < 100: continue
-                
-                nome = texto.split("R$")[0].strip()[:100]
-                if len(nome) < 5: continue
+            # Espera a rede acalmar (garante que os produtos carregaram)
+            page.wait_for_load_state("networkidle", timeout=10000)
+            
+            # Usando a mesma lógica visual que funcionou no debug
+            produtos = page.locator("a[href*='/']").all()
+            
+            count = 0
+            urls_vistas = set() # Evita duplicatas na mesma rodada
 
-                db.salvar_preco({
-                    "nome": nome,
-                    "preco": preco,
-                    "concorrente": "Pichau",
-                    "url": full_url
-                })
-                urls_vistas.add(full_url)
-                count += 1
-                
-        print(f"--- [PICHAU] Sucesso: {count} itens encontrados. ---")
+            for prod in produtos:
+                try:
+                    texto_card = prod.inner_text()
+                    
+                    if "R$" in texto_card and len(texto_card) > 20:
+                        linhas = texto_card.split('\n')
+                        linhas_limpas = [l for l in linhas if "Frete" not in l and "Review" not in l and "%" not in l]
+                        
+                        if not linhas_limpas: continue
 
-    except Exception as e:
-        print(f"[PICHAU ERRO] {e}")
+                        nome = max(linhas_limpas, key=len)
+                        preco_raw = next((l for l in linhas if "R$" in l), None)
+                        
+                        href = prod.get_attribute("href")
+                        full_url = "https://www.pichau.com.br" + href if href.startswith("/") else href
+
+                        if full_url not in urls_vistas and preco_raw:
+                            db.salvar_preco({
+                                "nome": nome[:150],
+                                "preco": preco_raw,
+                                "concorrente": "Pichau",
+                                "url": full_url
+                            })
+                            urls_vistas.add(full_url)
+                            count += 1
+                            if count >= 15: break # Limite de segurança
+
+                except Exception:
+                    continue
+
+            print(f"✅ [PICHAU] Finalizado. {count} itens salvos.")
+
+        except Exception as e:
+            print(f"❌ [PICHAU] Erro Stealth: {e}")
+        
+        finally:
+            browser.close()

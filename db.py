@@ -13,7 +13,7 @@ DB_CONFIG = {
 def salvar_preco(dados):
     """
     Recebe um dicionário e salva na tabela bronze.
-    Espera: {'nome': str, 'preco': str, 'concorrente': str, 'url': str}
+    Espera: {'nome': str, 'preco_raw': str, 'concorrente': str, 'url': str}
     """
     try:
         with psycopg2.connect(**DB_CONFIG) as conn:

@@ -1,16 +1,19 @@
 # app.py
 import pichau
 import kabum
-from concurrent.futures import ThreadPoolExecutor
+import time
 
 def iniciar_monitoramento_global(produto):
-    print(f"\n🚀 INICIANDO MONITORAMENTO GLOBAL: {produto.upper()}\n")
+    print(f"\n🚀 INICIANDO MONITORAMENTO DE DADOS: {produto.upper()}\n")
     
-    # Executa os dois ao mesmo tempo (Paralelismo)
-    # Assim a busca na Pichau e Kabum rodam juntas, economizando tempo
-    with ThreadPoolExecutor() as executor:
-        executor.submit(pichau.buscar, produto)
-        executor.submit(kabum.buscar, produto)
+    # Executa Kabum
+    kabum.buscar(produto)
+    
+    print("⏳ Trocando de loja...")
+    time.sleep(2)
+    
+    # Executa Pichau
+    pichau.buscar(produto)
 
 if __name__ == "__main__":
     termo = input("O que deseja buscar no mercado hoje? ")
