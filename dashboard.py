@@ -4,16 +4,16 @@ import psycopg2
 import plotly.express as px
 from db import DB_CONFIG
 
-# --- IMPORTAÇÃO DOS SEUS ROBÔS E ETLS ---
-# O Streamlit vai rodar eles como se fosse você no terminal
+# --- IMPORTAÇÃO DOS MÓDULOS ---
 import kabum
 import pichau
 import etl_silver
 import etl_gold
+from utils import analisar_competitividade 
 
-st.set_page_config(page_title="Monitor de Preços Pro", layout="wide", page_icon="🦅")
+st.set_page_config(page_title="Monitor Pro", layout="wide", page_icon="🦅")
 
-# --- FUNÇÕES DE CARREGAMENTO DE DADOS ---
+# --- FUNÇÕES DE BANCO DE DADOS ---
 def carregar_dados_gold():
     conn = psycopg2.connect(**DB_CONFIG)
     query = """
@@ -26,10 +26,10 @@ def carregar_dados_gold():
 
 def carregar_dados_silver(termo=None):
     conn = psycopg2.connect(**DB_CONFIG)
-    # Se tiver termo, filtra. Se não, traz os últimos 100.
     if termo:
+        # Agora a coluna url_fonte existe no banco
         query = f"""
-        SELECT produto_nome, preco_final, concorrente, data_processamento 
+        SELECT produto_nome, preco_final, concorrente, url_fonte, data_processamento 
         FROM silver.precos_limpos 
         WHERE termo_busca = '{termo}' 
         ORDER BY preco_final ASC
@@ -44,110 +44,146 @@ def carregar_dados_silver(termo=None):
     conn.close()
     return df
 
-# --- INTERFACE LATERAL (CONTROLE) ---
-st.sidebar.title("🦅 Centro de Comando")
+def atualizar_custo_gold(termo, custo):
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        query = """
+        UPDATE gold.historico_precos
+        SET preco_custo = %s
+        WHERE termo_busca = %s AND data_coleta = CURRENT_DATE
+        """
+        cur.execute(query, (custo, termo))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        st.error(f"Erro ao salvar custo: {e}")
+
+# --- BARRA LATERAL (CONTROLE) ---
+st.sidebar.title("🦅 Comando")
 st.sidebar.markdown("---")
 
-# Formulário de Busca (Isso substitui o app.py)
+# 1. Formulário Otimizado
 with st.sidebar.form(key='search_form'):
-    st.markdown("### 🕵️ Nova Pesquisa")
-    novo_termo = st.text_input("Produto para monitorar", placeholder="Ex: RTX 4060")
-    submit_button = st.form_submit_button(label='🔍 Buscar na Web')
-
-# --- LÓGICA DE EXECUÇÃO (O CÉREBRO) ---
-if submit_button and novo_termo:
-    st.toast(f"Iniciando busca por: {novo_termo}...", icon="🤖")
+    st.markdown("### 🕵️ Nova Busca")
     
-    # Barra de progresso para dar feedback visual
-    progress_text = "Operação em andamento. Por favor, aguarde."
-    my_bar = st.progress(0, text=progress_text)
+    # Input do produto
+    novo_termo = st.text_input("Produto", placeholder="Ex: iPhone 15", help="Nome do produto para buscar na Web")
+    
+    # Input do Custo (Agora sozinho e limpo)
+    preco_custo_input = st.number_input("Preço de Custo (R$)", min_value=0.0, format="%.2f", help="Seu custo de aquisição para cálculo de margem")
+    
+    submit_button = st.form_submit_button(label='🚀 Rastrear Agora')
+
+# 2. Área de Admin
+with st.sidebar.expander("⚙️ Admin Tools", expanded=False):
+    if st.button("🧹 Reprocessar Silver"):
+        etl_silver.executar_etl_silver()
+        st.toast("Silver atualizado!", icon="✅")
+        
+    if st.button("🏆 Reprocessar Gold"):
+        etl_gold.executar_etl_gold()
+        st.toast("Gold atualizado!", icon="✅")
+
+# --- EXECUÇÃO DO PIPELINE ---
+if submit_button and novo_termo:
+    st.toast(f"Iniciando: {novo_termo}", icon="🤖")
+    my_bar = st.progress(0, text="Chamando robôs...")
 
     try:
-        # 1. Roda Kabum
-        my_bar.progress(10, text="Varrendo Kabum...")
-        # AQUI CHAMAMOS A FUNÇÃO DO SEU ARQUIVO KABUM
-        # Se seu arquivo não tem função e roda solto, teremos que adaptar.
-        # Assumindo que você encapsulou em uma função 'buscar_produtos(termo)' ou similar.
-        # Se não tiver função, o import executa o código, mas é perigoso.
-        # Vou assumir que você criou uma função 'minha_busca_kabum' ou similar.
-        # Vamos usar um hack para recarregar o módulo se necessário ou chamar a função.
+        # 1. Robôs
+        # kabum.buscar_produtos(novo_termo) # Descomente se quiser rodar scraping
+        # my_bar.progress(30, text="Pichau finalizado...")
+        # pichau.buscar_produtos(novo_termo) # Descomente se quiser rodar scraping
         
-        # MODO SEGURO: Chame as funções que você tem lá. 
-        # Vou assumir que a lógica principal está acessível.
-        kabum.buscar_produtos(novo_termo) # <--- CERTIFIQUE-SE QUE ESSA FUNÇÃO EXISTE NO KABUM.PY
+        # MODO TESTE RÁPIDO: Se você já rodou o scraping e só quer testar o código novo,
+        # comente as linhas do kabum/pichau acima e rode só os ETLs abaixo.
         
-        # 2. Roda Pichau
-        my_bar.progress(40, text="Varrendo Pichau...")
-        pichau.buscar_produtos(novo_termo) # <--- CERTIFIQUE-SE QUE ESSA FUNÇÃO EXISTE NO PICHAU.PY
-
-        # 3. Roda ETL Silver
-        my_bar.progress(70, text="Limpando dados (Silver)...")
+        # 2. ETLs
+        my_bar.progress(60, text="Limpando dados...")
         etl_silver.executar_etl_silver()
-
-        # 4. Roda ETL Gold
-        my_bar.progress(90, text="Gerando inteligência (Gold)...")
+        my_bar.progress(80, text="Calculando estatísticas...")
         etl_gold.executar_etl_gold()
 
-        my_bar.progress(100, text="Concluído!")
-        st.success(f"Dados de '{novo_termo}' atualizados com sucesso!")
+        # 3. Salvar Custo
+        if preco_custo_input > 0:
+            atualizar_custo_gold(novo_termo, preco_custo_input)
+
+        my_bar.progress(100, text="Pronto!")
+        st.rerun()
         
     except Exception as e:
-        st.error(f"Erro durante a execução: {e}")
-        st.info("Dica: Verifique se seus arquivos kabum.py e pichau.py têm uma função chamada 'buscar_produtos(termo)'.")
+        st.error(f"Erro: {e}")
 
 # --- DASHBOARD VISUAL ---
-
-# Carrega dados
 df_gold = carregar_dados_gold()
 
-st.title("📊 Monitor de Mercado")
+st.title("📊 Monitor de Competitividade")
 
-# Seletor de visualização
-lista_termos = df_gold['termo_busca'].unique()
-termo_selecionado = st.selectbox("Selecione um Histórico:", lista_termos, index=0 if len(lista_termos) > 0 else None)
+if not df_gold.empty:
+    lista_termos = df_gold['termo_busca'].unique()
+    termo_selecionado = st.selectbox("Selecione o Produto:", lista_termos)
 
-if termo_selecionado:
-    # Filtra dados para o termo selecionado
-    dados_gold_termo = df_gold[df_gold['termo_busca'] == termo_selecionado]
-    dados_silver_termo = carregar_dados_silver(termo_selecionado)
-    
-    # KPIs
-    ultimo_registro = dados_gold_termo.iloc[0]
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Menor Preço Hoje", f"R$ {ultimo_registro['preco_minimo']}")
-    col2.metric("Média de Mercado", f"R$ {ultimo_registro['preco_medio']}")
-    col3.metric("Loja Vencedora", ultimo_registro['loja_mais_barata'])
-    col4.metric("Itens Analisados", ultimo_registro['qtd_itens_encontrados'])
-
-    # Abas para organizar a bagunça
-    tab1, tab2 = st.tabs(["📈 Histórico (Gold)", "📋 Detalhes (Silver)"])
-
-    with tab1:
-        st.markdown("### Evolução de Preços")
-        # Gráfico de Linha (Data vs Preço)
-        fig = px.line(dados_gold_termo, x='data_coleta', y=['preco_minimo', 'preco_medio'], 
-                      markers=True, title=f"Histórico: {termo_selecionado}")
-        st.plotly_chart(fig, use_container_width=True)
+    if termo_selecionado:
+        # Filtros
+        dados_gold_termo = df_gold[df_gold['termo_busca'] == termo_selecionado]
+        registro_atual = dados_gold_termo.iloc[0] # Pega o dia mais recente
         
-        st.markdown("### Tabela Gold (Dados Consolidados)")
-        st.dataframe(dados_gold_termo, use_container_width=True)
+        custo_bd = registro_atual.get('preco_custo')
+        menor_preco_mercado = float(registro_atual['preco_minimo'])
 
-    with tab2:
-        st.markdown(f"### Produtos Relacionados a '{termo_selecionado}'")
-        st.markdown("Estes são os itens individuais que compõem a média acima.")
+        # --- KPI CARDS ---
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Menor Preço (Web)", f"R$ {menor_preco_mercado:,.2f}")
+        col2.metric("Média de Mercado", f"R$ {registro_atual['preco_medio']:,.2f}")
+        col3.metric("Loja Vencedora", registro_atual['loja_mais_barata'])
         
-        # Filtro textual extra na tabela silver
-        filtro_texto = st.text_input("Filtrar dentro da lista", "")
-        if filtro_texto:
-            dados_silver_termo = dados_silver_termo[dados_silver_termo['produto_nome'].str.contains(filtro_texto, case=False)]
+        # Mostra o custo se existir
+        if custo_bd and custo_bd > 0:
+            col4.metric("Meu Custo", f"R$ {custo_bd:,.2f}")
+        else:
+            col4.metric("Meu Custo", "---")
+
+        # --- ANÁLISE DE INTELIGÊNCIA ---
+        if custo_bd and custo_bd > 0:
+            analise = analisar_competitividade(float(custo_bd), menor_preco_mercado)
             
-        st.dataframe(
-            dados_silver_termo, 
-            use_container_width=True,
-            column_config={
-                "preco_final": st.column_config.NumberColumn("Preço", format="R$ %.2f")
-            }
-        )
+            if analise:
+                st.markdown("---")
+                if analise['status'] == "CRÍTICO":
+                    st.error(f"{analise['icone']} **ANÁLISE DE MERCADO:** {analise['msg']}")
+                elif analise['status'] == "ALERTA":
+                    st.warning(f"{analise['icone']} **ANÁLISE DE MERCADO:** {analise['msg']}")
+                else:
+                    st.success(f"{analise['icone']} **ANÁLISE DE MERCADO:** {analise['msg']}")
 
+        st.markdown("---")
+
+        # --- GRÁFICOS E TABELAS ---
+        tab1, tab2 = st.tabs(["📈 Gráficos", "📋 Lista de Produtos"])
+
+        with tab1:
+            fig = px.line(dados_gold_termo, x='data_coleta', y=['preco_minimo', 'preco_medio'], markers=True)
+            if custo_bd:
+                fig.add_hline(y=custo_bd, line_dash="dot", annotation_text="Seu Custo", annotation_position="bottom right", line_color="red")
+            st.plotly_chart(fig, use_container_width=True)
+
+        with tab2:
+            dados_silver = carregar_dados_silver(termo_selecionado)
+            
+            # Filtro textual simples na tabela
+            filtro = st.text_input("Filtrar itens:", placeholder="Ex: Asus")
+            if filtro:
+                dados_silver = dados_silver[dados_silver['produto_nome'].str.contains(filtro, case=False)]
+
+            st.dataframe(
+                dados_silver, 
+                use_container_width=True,
+                column_config={
+                    "preco_final": st.column_config.NumberColumn("Preço", format="R$ %.2f"),
+                    "url_fonte": st.column_config.LinkColumn("Link Original", display_text="Acessar Site")
+                }
+            )
 else:
-    st.info("👈 Use a barra lateral para fazer sua primeira busca ou aguarde carregar o histórico.")
+    st.info("Nenhum dado encontrado. Faça sua primeira busca na barra lateral.")
