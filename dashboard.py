@@ -1,104 +1,153 @@
 import streamlit as st
 import pandas as pd
 import psycopg2
+import plotly.express as px
 from db import DB_CONFIG
 
-# 1. Configuração da Página
-st.set_page_config(page_title="Monitor de Preços GPU", layout="wide")
+# --- IMPORTAÇÃO DOS SEUS ROBÔS E ETLS ---
+# O Streamlit vai rodar eles como se fosse você no terminal
+import kabum
+import pichau
+import etl_silver
+import etl_gold
 
-# 2. Conexão e Cache (Para não travar o banco)
-@st.cache_data
-def carregar_dados():
+st.set_page_config(page_title="Monitor de Preços Pro", layout="wide", page_icon="🦅")
+
+# --- FUNÇÕES DE CARREGAMENTO DE DADOS ---
+def carregar_dados_gold():
     conn = psycopg2.connect(**DB_CONFIG)
-    # Query otimizada com apelidos (aliases) para evitar aquele erro anterior
     query = """
-    SELECT 
-        b.produto_nome, 
-        s.preco_final, 
-        s.concorrente, 
-        b.url_fonte as link, 
-        s.data_processamento 
-    FROM silver.precos_limpos AS s
-    JOIN bronze.precos_concorrentes AS b ON s.id_bronze = b.id
-    ORDER BY s.preco_final ASC
+    SELECT * FROM gold.historico_precos 
+    ORDER BY data_coleta DESC
     """
     df = pd.read_sql(query, conn)
     conn.close()
     return df
 
-# 3. Interface Principal
-st.title("🦅 Monitor de Mercado: Hardware")
-st.markdown("---")
+def carregar_dados_silver(termo=None):
+    conn = psycopg2.connect(**DB_CONFIG)
+    # Se tiver termo, filtra. Se não, traz os últimos 100.
+    if termo:
+        query = f"""
+        SELECT produto_nome, preco_final, concorrente, data_processamento 
+        FROM silver.precos_limpos 
+        WHERE termo_busca = '{termo}' 
+        ORDER BY preco_final ASC
+        """
+    else:
+        query = """
+        SELECT produto_nome, preco_final, concorrente, termo_busca, data_processamento 
+        FROM silver.precos_limpos 
+        ORDER BY data_processamento DESC LIMIT 100
+        """
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df
 
-# Carrega os dados iniciais
-df = carregar_dados()
+# --- INTERFACE LATERAL (CONTROLE) ---
+st.sidebar.title("🦅 Centro de Comando")
+st.sidebar.markdown("---")
 
-# 4. Barra Lateral de Filtros (A Mágica acontece aqui)
-st.sidebar.header("🔍 Filtros Avançados")
+# Formulário de Busca (Isso substitui o app.py)
+with st.sidebar.form(key='search_form'):
+    st.markdown("### 🕵️ Nova Pesquisa")
+    novo_termo = st.text_input("Produto para monitorar", placeholder="Ex: RTX 4060")
+    submit_button = st.form_submit_button(label='🔍 Buscar na Web')
 
-# --- Filtro de Texto (O que você pediu!) ---
-busca_usuario = st.sidebar.text_input("Buscar Modelo (ex: Gigabyte, 4060, Asus)", "")
+# --- LÓGICA DE EXECUÇÃO (O CÉREBRO) ---
+if submit_button and novo_termo:
+    st.toast(f"Iniciando busca por: {novo_termo}...", icon="🤖")
+    
+    # Barra de progresso para dar feedback visual
+    progress_text = "Operação em andamento. Por favor, aguarde."
+    my_bar = st.progress(0, text=progress_text)
 
-# --- Filtro de Loja ---
-todas_lojas = df['concorrente'].unique()
-lojas_selecionadas = st.sidebar.multiselect("Lojas", todas_lojas, default=todas_lojas)
+    try:
+        # 1. Roda Kabum
+        my_bar.progress(10, text="Varrendo Kabum...")
+        # AQUI CHAMAMOS A FUNÇÃO DO SEU ARQUIVO KABUM
+        # Se seu arquivo não tem função e roda solto, teremos que adaptar.
+        # Assumindo que você encapsulou em uma função 'buscar_produtos(termo)' ou similar.
+        # Se não tiver função, o import executa o código, mas é perigoso.
+        # Vou assumir que você criou uma função 'minha_busca_kabum' ou similar.
+        # Vamos usar um hack para recarregar o módulo se necessário ou chamar a função.
+        
+        # MODO SEGURO: Chame as funções que você tem lá. 
+        # Vou assumir que a lógica principal está acessível.
+        kabum.buscar_produtos(novo_termo) # <--- CERTIFIQUE-SE QUE ESSA FUNÇÃO EXISTE NO KABUM.PY
+        
+        # 2. Roda Pichau
+        my_bar.progress(40, text="Varrendo Pichau...")
+        pichau.buscar_produtos(novo_termo) # <--- CERTIFIQUE-SE QUE ESSA FUNÇÃO EXISTE NO PICHAU.PY
 
-# --- Filtro de Preço ---
-preco_max_db = float(df['preco_final'].max())
-preco_min_db = float(df['preco_final'].min())
+        # 3. Roda ETL Silver
+        my_bar.progress(70, text="Limpando dados (Silver)...")
+        etl_silver.executar_etl_silver()
 
-range_preco = st.sidebar.slider(
-    "Faixa de Preço", 
-    min_value=preco_min_db, 
-    max_value=preco_max_db, 
-    value=(preco_min_db, preco_max_db) # Tupla: (min, max)
-)
+        # 4. Roda ETL Gold
+        my_bar.progress(90, text="Gerando inteligência (Gold)...")
+        etl_gold.executar_etl_gold()
 
-# 5. Aplicando a Lógica de Filtragem
-# Primeiro, filtra pelas lojas e preço
-df_filtrado = df[
-    (df['concorrente'].isin(lojas_selecionadas)) & 
-    (df['preco_final'] >= range_preco[0]) & 
-    (df['preco_final'] <= range_preco[1])
-]
+        my_bar.progress(100, text="Concluído!")
+        st.success(f"Dados de '{novo_termo}' atualizados com sucesso!")
+        
+    except Exception as e:
+        st.error(f"Erro durante a execução: {e}")
+        st.info("Dica: Verifique se seus arquivos kabum.py e pichau.py têm uma função chamada 'buscar_produtos(termo)'.")
 
-# Depois, se o usuário digitou algo, filtra pelo texto
-if busca_usuario:
-    # A mágica: procura o texto dentro da coluna 'produto_nome', ignorando maiúsculas (case=False)
-    df_filtrado = df_filtrado[df_filtrado['produto_nome'].str.contains(busca_usuario, case=False, na=False)]
+# --- DASHBOARD VISUAL ---
 
-# 6. Exibindo os Resultados
-if not df_filtrado.empty:
-    # KPIs Dinâmicos (Mudam conforme sua busca)
+# Carrega dados
+df_gold = carregar_dados_gold()
+
+st.title("📊 Monitor de Mercado")
+
+# Seletor de visualização
+lista_termos = df_gold['termo_busca'].unique()
+termo_selecionado = st.selectbox("Selecione um Histórico:", lista_termos, index=0 if len(lista_termos) > 0 else None)
+
+if termo_selecionado:
+    # Filtra dados para o termo selecionado
+    dados_gold_termo = df_gold[df_gold['termo_busca'] == termo_selecionado]
+    dados_silver_termo = carregar_dados_silver(termo_selecionado)
+    
+    # KPIs
+    ultimo_registro = dados_gold_termo.iloc[0]
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Itens Encontrados", len(df_filtrado))
-    col1.metric("Menor Preço", f"R$ {df_filtrado['preco_final'].min():.2f}")
-    col2.metric("Média da Busca", f"R$ {df_filtrado['preco_final'].mean():.2f}")
-    col2.metric("Maior Preço", f"R$ {df_filtrado['preco_final'].max():.2f}")
+    col1.metric("Menor Preço Hoje", f"R$ {ultimo_registro['preco_minimo']}")
+    col2.metric("Média de Mercado", f"R$ {ultimo_registro['preco_medio']}")
+    col3.metric("Loja Vencedora", ultimo_registro['loja_mais_barata'])
+    col4.metric("Itens Analisados", ultimo_registro['qtd_itens_encontrados'])
 
-    # Tabela Interativa
-    st.subheader(f"Resultados para: {busca_usuario if busca_usuario else 'Todos os produtos'}")
-    
-    st.dataframe(
-        df_filtrado[['produto_nome', 'preco_final', 'concorrente', 'link']],
-        column_config={
-            "produto_nome": st.column_config.TextColumn("Produto", width="medium"),
-            "preco_final": st.column_config.NumberColumn("Preço (R$)", format="R$ %.2f"),
-            "link": st.column_config.LinkColumn("Link para Compra"),
-            "concorrente": "Loja"
-        },
-        hide_index=True,
-        use_container_width=True
-    )
-    
-    # Gráfico simples para comparar preços da busca atual
-    st.markdown("### 📊 Comparativo de Preços")
-    st.scatter_chart(df_filtrado, x="concorrente", y="preco_final", color="concorrente", size=100)
+    # Abas para organizar a bagunça
+    tab1, tab2 = st.tabs(["📈 Histórico (Gold)", "📋 Detalhes (Silver)"])
+
+    with tab1:
+        st.markdown("### Evolução de Preços")
+        # Gráfico de Linha (Data vs Preço)
+        fig = px.line(dados_gold_termo, x='data_coleta', y=['preco_minimo', 'preco_medio'], 
+                      markers=True, title=f"Histórico: {termo_selecionado}")
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.markdown("### Tabela Gold (Dados Consolidados)")
+        st.dataframe(dados_gold_termo, use_container_width=True)
+
+    with tab2:
+        st.markdown(f"### Produtos Relacionados a '{termo_selecionado}'")
+        st.markdown("Estes são os itens individuais que compõem a média acima.")
+        
+        # Filtro textual extra na tabela silver
+        filtro_texto = st.text_input("Filtrar dentro da lista", "")
+        if filtro_texto:
+            dados_silver_termo = dados_silver_termo[dados_silver_termo['produto_nome'].str.contains(filtro_texto, case=False)]
+            
+        st.dataframe(
+            dados_silver_termo, 
+            use_container_width=True,
+            column_config={
+                "preco_final": st.column_config.NumberColumn("Preço", format="R$ %.2f")
+            }
+        )
 
 else:
-    st.warning(f"Nenhum produto encontrado com o termo '{busca_usuario}'. Tente outro termo.")
-
-# Botão de refresh
-if st.sidebar.button("🔄 Atualizar Dados"):
-    st.cache_data.clear()
-    st.rerun()
+    st.info("👈 Use a barra lateral para fazer sua primeira busca ou aguarde carregar o histórico.")

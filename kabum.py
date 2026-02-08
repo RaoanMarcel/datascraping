@@ -38,7 +38,8 @@ def buscar(termo):
                             "nome": nome[:150],
                             "preco": preco_raw, # Manda como TEXTO mesmo
                             "concorrente": "Kabum",
-                            "url": full_url
+                            "url": full_url,
+                            "termo": termo
                         })
                         count += 1
                         

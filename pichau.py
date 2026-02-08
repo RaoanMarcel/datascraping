@@ -53,7 +53,8 @@ def buscar(termo):
                                 "nome": nome[:150],
                                 "preco": preco_raw,
                                 "concorrente": "Pichau",
-                                "url": full_url
+                                "url": full_url,
+                                "termo": termo
                             })
                             urls_vistas.add(full_url)
                             count += 1

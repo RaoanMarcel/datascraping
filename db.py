@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import psycopg2
 
-# Configuração centralizada (Se mudar a senha, muda só aqui)
+# Configuração centralizada
 DB_CONFIG = {
     "host": "localhost",
     "database": "estoque_inteligente",
@@ -13,21 +13,31 @@ DB_CONFIG = {
 def salvar_preco(dados):
     """
     Recebe um dicionário e salva na tabela bronze.
-    Espera: {'nome': str, 'preco_raw': str, 'concorrente': str, 'url': str}
+    Espera: {'nome': str, 'preco': str, 'concorrente': str, 'url': str, 'termo': str}
     """
     try:
         with psycopg2.connect(**DB_CONFIG) as conn:
             with conn.cursor() as cur:
+                # ATUALIZAÇÃO: Adicionamos a coluna 'termo_busca' no INSERT
                 cur.execute("""
-                    INSERT INTO bronze.precos_concorrentes (produto_nome, preco_raw, concorrente, url_fonte)
-                    VALUES (%(nome)s, %(preco)s, %(concorrente)s, %(url)s);
-                """, dados)
+                    INSERT INTO bronze.precos_concorrentes 
+                    (produto_nome, preco_raw, concorrente, url_fonte, termo_busca)
+                    VALUES (%(nome)s, %(preco)s, %(concorrente)s, %(url)s, %(termo)s);
+                """, {
+                    # Garantimos que os dados estão mapeados corretamente
+                    'nome': dados['nome'],
+                    'preco': dados['preco'],
+                    'concorrente': dados['concorrente'],
+                    'url': dados['url'],
+                    # Se o scraper não mandar o termo, salvamos como 'Desconhecido' para não quebrar
+                    'termo': dados.get('termo', 'Desconhecido') 
+                })
                 conn.commit()
-                print(f"[DB] Salvo com sucesso: {dados['nome']}")
+                print(f"[DB] Salvo com sucesso: {dados['nome'][:50]}...")
     except Exception as e:
         print(f"[DB ERRO] Falha ao conectar ou salvar: {e}")
 
-# Este bloco 'if' serve apenas para testar a conexão isoladamente se você rodar 'python db.py'
+# Este bloco 'if' serve apenas para testar a conexão isoladamente
 if __name__ == "__main__":
     print("Testando conexão com o banco...")
     try:
