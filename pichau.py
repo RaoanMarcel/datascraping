@@ -1,15 +1,15 @@
-# pichau.py (Versão Final Stealth)
 from playwright.sync_api import sync_playwright
 import db
 
-def buscar(termo):
+# CORREÇÃO: O nome da função agora é buscar_produtos
+def buscar_produtos(termo):
     print(f"🕵️‍♂️ [PICHAU] Iniciando busca invisível por: {termo}")
     
     with sync_playwright() as p:
-        # headless=True VOLTOU, mas com argumentos extras para parecer humano
+        # headless=True com argumentos anti-bot
         browser = p.chromium.launch(
             headless=True,
-            args=["--disable-blink-features=AutomationControlled"] # Truque anti-bot
+            args=["--disable-blink-features=AutomationControlled"] 
         )
         
         context = browser.new_context(
@@ -26,7 +26,7 @@ def buscar(termo):
             # Espera a rede acalmar (garante que os produtos carregaram)
             page.wait_for_load_state("networkidle", timeout=10000)
             
-            # Usando a mesma lógica visual que funcionou no debug
+            # Usando a lógica visual
             produtos = page.locator("a[href*='/']").all()
             
             count = 0

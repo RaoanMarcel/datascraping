@@ -1,7 +1,8 @@
 from playwright.sync_api import sync_playwright
 import db
 
-def buscar(termo):
+# CORREÇÃO: O nome da função agora é buscar_produtos
+def buscar_produtos(termo):
     print(f"🕵️‍♂️ [KABUM] Iniciando busca invisível por: {termo}")
     
     with sync_playwright() as p:
