@@ -2,13 +2,15 @@ import streamlit as st
 import warnings
 import asyncio
 import sys
-import re
+import json
+import os
+import pandas as pd
+import time
 
-# --- FIX DO WINDOWS ---
+# Fix para loop de eventos no Windows
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-# --- IMPORTAÇÕES MÓDULOS PRÓPRIOS ---
 import kabum
 import pichau
 import etl_silver
@@ -16,147 +18,201 @@ import etl_gold
 import db_functions as db
 import ui_view as ui
 
-# 1. Configuração da Página
-st.set_page_config(page_title="Monitor Pro", layout="wide", page_icon="🦅")
+# Configuração da Página
+st.set_page_config(page_title="Monitor", layout="wide")
 warnings.filterwarnings('ignore') 
 
-# --- CSS: ESTILO DOS INPUTS ---
+# CSS: Visual Limpo e Profissional
 st.markdown("""
 <style>
+    /* Remove a instrução 'Press Enter' */
+    div[data-testid="InputInstructions"] > span:nth-child(1) { display: none; }
+    
+    /* Ajuste de Espaçamento dos Inputs */
     div[data-baseweb="input"] > div { padding: 8px 10px; }
+    
+    /* Fontes e Labels */
     input[class] { font-size: 1.1rem; }
-    label[data-baseweb="label"] { font-size: 0.95rem; font-weight: 600; margin-bottom: 5px; }
+    label[data-baseweb="label"] { font-size: 0.9rem; font-weight: 600; margin-bottom: 5px; color: #444; }
+    
+    /* Ajuste da Sidebar */
+    section[data-testid="stSidebar"] { padding-top: 20px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- FUNÇÃO AUXILIAR ---
-def limpar_valor_moeda(valor_str):
-    if not valor_str: return 0.0
-    limpo = re.sub(r'[^\d,.]', '', str(valor_str))
-    if ',' in limpo:
-        limpo = limpo.replace('.', '').replace(',', '.')
-    try: return float(limpo)
-    except ValueError: return 0.0
+CONFIG_FILE = 'config.json'
 
-# --- BARRA LATERAL (CONTROLE) ---
-st.sidebar.title("Comando")
+def carregar_config():
+    if not os.path.exists(CONFIG_FILE):
+        return {"telegram_token": "", "telegram_chat_id": "", "frequencia_minutos": 60}
+    with open(CONFIG_FILE, 'r') as f:
+        return json.load(f)
+
+def salvar_config(novos_dados):
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(novos_dados, f, indent=4)
+
+
+st.sidebar.title("Monitor")
 st.sidebar.markdown("---")
 
-with st.sidebar.form(key='search_form'):
-    st.markdown("### Nova Busca")
-    
-    novo_termo = st.text_input("Produto", placeholder="Ex: iPhone 15")
-    
-    custo_digitado = st.text_input("Preço de Custo", placeholder="0,00", help="Ex: 1500,00")
-    preco_custo_input = limpar_valor_moeda(custo_digitado)
-    
-    st.markdown("### Lojas Alvo")
-    c1, c2 = st.columns(2)
-    with c1: check_kabum = st.checkbox("Kabum", value=True)
-    with c2: check_pichau = st.checkbox("Pichau", value=True)
-    
-    st.markdown("---")
-    submit_button = st.form_submit_button(label='Rastrear Agora')
+# 1. ÁREA DE BUSCA (Operacional)
+st.sidebar.subheader("Nova Varredura")
+novo_termo = st.sidebar.text_input("Produto", placeholder="Ex: RTX 4060")
 
-# --- FILTROS DE VISUALIZAÇÃO ---
-st.sidebar.markdown("### 🌪️ Filtros")
-# Slider para limpar dados "sujos" (ex: acessórios baratos)
-filtro_preco_min, filtro_preco_max = st.sidebar.slider(
-    "Faixa de Preço (R$)",
-    min_value=0.0,
-    max_value=20000.0,
-    value=(100.0, 20000.0), # Valor padrão ignora coisas abaixo de 100 reais
-    step=50.0
-)
+c1, c2 = st.sidebar.columns(2)
+check_kabum = c1.checkbox("Kabum", value=True)
+check_pichau = c2.checkbox("Pichau", value=True)
 
-# --- ADMIN TOOLS ---
-with st.sidebar.expander("Admin Tools"):
-    if st.button("Reprocessar Silver"):
-        etl_silver.executar_etl_silver()
-        st.toast("Silver OK", icon="✅")
-    if st.button("Reprocessar Gold"):
-        etl_gold.executar_etl_gold()
-        st.toast("Gold OK", icon="✅")
-
-# --- LÓGICA DE EXECUÇÃO ---
-if 'ultimo_termo_buscado' not in st.session_state:
-    st.session_state['ultimo_termo_buscado'] = None
-
-if submit_button and novo_termo:
-    st.session_state['ultimo_termo_buscado'] = novo_termo
-    
-    with st.status("Iniciando rastreio...", expanded=True) as status:
+if st.sidebar.button("Iniciar Busca", type="primary"):
+    if novo_termo:
+        st.session_state['ultimo_produto_visto'] = novo_termo
+        
+        status_box = st.sidebar.status("Processando...", expanded=True)
+        
         if check_kabum:
-            st.write("Consultando Kabum...")
+            status_box.write("Consultando Kabum...")
             try: kabum.buscar_produtos(novo_termo)
-            except Exception as e: st.error(f"Erro Kabum: {e}")
+            except Exception as e: status_box.error(f"Erro: {e}")
         
         if check_pichau:
-            st.write("Consultando Pichau...")
+            status_box.write("Consultando Pichau...")
             try: pichau.buscar_produtos(novo_termo)
-            except Exception as e: st.error(f"Erro Pichau: {e}")
+            except Exception as e: status_box.error(f"Erro: {e}")
 
-        st.write("Atualizando dados...")
+        status_box.write("Atualizando base...")
         etl_silver.executar_etl_silver()
         etl_gold.executar_etl_gold()
-
-        if preco_custo_input > 0:
-            db.atualizar_custo_gold(novo_termo, preco_custo_input)
-
-        status.update(label="Pronto!", state="complete", expanded=False)
-    st.rerun()
-
-# --- DASHBOARD VISUAL ---
-st.title("Monitor de Competitividade")
-df_gold = db.carregar_dados_gold()
-
-if not df_gold.empty:
-    lista_termos = sorted(df_gold['termo_busca'].unique())
-    index_padrao = 0
-    
-    if st.session_state['ultimo_termo_buscado'] in lista_termos:
-        index_padrao = lista_termos.index(st.session_state['ultimo_termo_buscado'])
-    
-    termo_selecionado = st.selectbox("Selecione o Produto:", lista_termos, index=index_padrao)
-
-    if termo_selecionado:
-        # 1. Carrega Dados
-        dados_gold_termo = df_gold[df_gold['termo_busca'] == termo_selecionado].sort_values('data_coleta')
-        dados_silver_termo = db.carregar_dados_silver(termo_selecionado)
         
-        # 2. Aplica Filtro do Slider (Remove sujeira dos dados atuais)
-        if not dados_silver_termo.empty:
-            dados_silver_termo = dados_silver_termo[
-                (dados_silver_termo['preco_final'] >= filtro_preco_min) & 
-                (dados_silver_termo['preco_final'] <= filtro_preco_max)
-            ]
-        
-        # 3. Prepara Métricas
-        if not dados_gold_termo.empty:
-            registro_atual = dados_gold_termo.iloc[-1]
-            
-            # Cálculo da Tendência (Atual - Anterior)
-            variacao = 0.0
-            if len(dados_gold_termo) > 1:
-                registro_anterior = dados_gold_termo.iloc[-2]
-                preco_atual = float(registro_atual['preco_minimo'])
-                preco_ant = float(registro_anterior['preco_minimo'])
-                variacao = preco_atual - preco_ant
-            
-            # Custo Seguro
-            custo_bd = registro_atual.get('preco_custo')
-            if custo_bd is None: custo_bd = 0.0
-            else: custo_bd = float(custo_bd)
-            
-            menor_preco = float(registro_atual['preco_minimo'])
+        status_box.update(label="Concluído!", state="complete", expanded=False)
+        time.sleep(1)
+        st.rerun()
+    else:
+        st.sidebar.warning("Digite um nome.")
 
-            # 4. Renderiza UI (Passando a variação calculada)
-            ui.renderizar_kpis(registro_atual, custo_bd, menor_preco, variacao)
+st.sidebar.markdown("---")
+
+# 2. FILTROS GLOBAIS (Visualização)
+st.sidebar.subheader("Filtros de Visualização")
+min_val, max_val = st.sidebar.slider(
+    "Faixa de Preço (R$)", 
+    min_value=0.0, 
+    max_value=20000.0, 
+    value=(100.0, 20000.0)
+)
+
+st.sidebar.markdown("---")
+
+# 3. ÁREA ADMIN (Configurações)
+with st.sidebar.expander("Admin & Configurações"):
+    config_atual = carregar_config()
+    
+    with st.form("admin_form"):
+        st.markdown("**Telegram Config**")
+        token = st.text_input("Bot Token", value=config_atual.get("telegram_token", ""), type="password")
+        chat_id = st.text_input("Chat ID", value=config_atual.get("telegram_chat_id", ""))
+        
+        st.markdown("---")
+        st.markdown("**Automação**")
+        freq = st.number_input("Intervalo Varredura (min)", value=int(config_atual.get("frequencia_minutos", 60)))
+        
+        if st.form_submit_button("Salvar Configurações"):
+            salvar_config({
+                "telegram_token": token,
+                "telegram_chat_id": chat_id,
+                "frequencia_minutos": freq
+            })
+            st.success("Salvo com sucesso!")
+
+    st.write("")
+    st.markdown("**Manutenção**")
+    if st.button("Recalcular Base de Dados"):
+        with st.spinner("Processando..."):
+            etl_silver.executar_etl_silver()
+            etl_gold.executar_etl_gold()
+        st.success("Tabelas Otimizadas!")
+
+# ==========================================
+# ÁREA PRINCIPAL
+# ==========================================
+tab_dashboard, tab_alertas = st.tabs(["Dashboard", "Alertas de Preço"])
+
+# ABA 1: DASHBOARD
+with tab_dashboard:
+    df_gold = db.carregar_dados_gold()
+    
+    if not df_gold.empty:
+        lista_termos = sorted(df_gold['termo_busca'].unique())
+        
+        index_padrao = 0
+        if 'ultimo_produto_visto' in st.session_state and st.session_state['ultimo_produto_visto'] in lista_termos:
+             index_padrao = lista_termos.index(st.session_state['ultimo_produto_visto'])
+
+        # Selectbox limpo no topo
+        termo_selecionado = st.selectbox("Selecione o Produto:", lista_termos, index=index_padrao)
+        st.session_state['ultimo_produto_visto'] = termo_selecionado
+        
+        if termo_selecionado:
+            dados_gold_termo = df_gold[df_gold['termo_busca'] == termo_selecionado].sort_values('data_coleta')
+            dados_silver_termo = db.carregar_dados_silver(termo_selecionado)
             
-            # Verifica se sobrou dados após o filtro
-            if dados_silver_termo.empty:
-                st.warning(f"⚠️ Nenhum produto encontrado entre R$ {filtro_preco_min} e R$ {filtro_preco_max}. Ajuste o filtro na barra lateral.")
-            else:
+            # Aplica o filtro que agora está na Sidebar
+            if not dados_silver_termo.empty:
+                dados_silver_termo = dados_silver_termo[
+                    (dados_silver_termo['preco_final'] >= min_val) & 
+                    (dados_silver_termo['preco_final'] <= max_val)
+                ]
+
+            if not dados_gold_termo.empty:
+                registro_atual = dados_gold_termo.iloc[-1]
+                custo_bd = registro_atual.get('preco_custo')
+                custo_bd = float(custo_bd) if custo_bd else 0.0
+                
+                ui.renderizar_kpis(registro_atual, custo_bd, float(registro_atual['preco_minimo']))
                 ui.renderizar_graficos(dados_gold_termo, dados_silver_termo, custo_bd)
-else:
-    st.info("Utilize o menu lateral para iniciar.")
+    else:
+        st.info("Utilize a barra lateral para iniciar uma busca.")
+
+# ABA 2: ALERTAS
+with tab_alertas:
+    st.header("Gerenciamento de Alertas")
+    
+    df_gold_alertas = db.carregar_dados_gold()
+    
+    if not df_gold_alertas.empty:
+        produtos_unicos = df_gold_alertas.sort_values('data_coleta').drop_duplicates('termo_busca', keep='last')
+        
+        with st.container(border=True):
+            st.subheader("Configurar Novo Alvo")
+            col_a, col_b, col_c = st.columns([2, 1, 1])
+            
+            with col_a:
+                prod_alvo = st.selectbox("Produto", produtos_unicos['termo_busca'])
+                custo_atual_db = produtos_unicos[produtos_unicos['termo_busca'] == prod_alvo]['preco_custo'].values[0]
+                if pd.isna(custo_atual_db): custo_atual_db = 0.0
+
+            with col_b:
+                novo_custo = st.number_input("Preço Alvo (R$)", value=float(custo_atual_db), step=50.0)
+            
+            with col_c:
+                st.write("")
+                st.write("")
+                if st.button("Salvar Alvo"):
+                    db.atualizar_custo_gold(prod_alvo, novo_custo)
+                    st.toast("Preço salvo!")
+                    time.sleep(1)
+                    st.rerun()
+
+        st.subheader("Lista de Alertas Ativos")
+        df_display = produtos_unicos[['termo_busca', 'preco_custo', 'preco_minimo', 'loja_mais_barata']].copy()
+        df_display.columns = ['Produto', 'Preço Alvo', 'Melhor Preço Hoje', 'Loja']
+        
+        st.dataframe(
+            df_display, 
+            use_container_width=True,
+            column_config={
+                "Preço Alvo": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Melhor Preço Hoje": st.column_config.NumberColumn(format="R$ %.2f")
+            },
+            hide_index=True
+        )
