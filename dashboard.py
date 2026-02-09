@@ -58,11 +58,15 @@ st.sidebar.subheader("Nova Varredura")
 novo_termo = st.sidebar.text_input("Produto", placeholder="Ex: RTX 4060")
 
 st.sidebar.write("Lojas:")
-# Colunas para os checkboxes ficarem bonitos
-c1, c2, c3 = st.sidebar.columns(3) 
+
+# Duas colunas por linha
+c1, c2 = st.sidebar.columns(2)
+
 check_kabum = c1.checkbox("Kabum", value=True)
 check_pichau = c2.checkbox("Pichau", value=True)
-check_tera = c3.checkbox("Tera", value=True) # <--- NOVO CHECKBOX
+
+c3, c4 = st.sidebar.columns(2)
+check_tera = c3.checkbox("Terabyte", value=True)
 
 if st.sidebar.button("Iniciar Busca", type="primary"):
     if novo_termo:
