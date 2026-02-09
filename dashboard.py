@@ -11,31 +11,26 @@ import time
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+# --- IMPORTAÇÕES DAS LOJAS ---
 import kabum
 import pichau
+import terabyte  # <--- NOVO IMPORT
 import etl_silver
 import etl_gold
 import db_functions as db
 import ui_view as ui
 
 # Configuração da Página
-st.set_page_config(page_title="Monitor", layout="wide")
+st.set_page_config(page_title="Monitor Pro", layout="wide")
 warnings.filterwarnings('ignore') 
 
-# CSS: Visual Limpo e Profissional
+# CSS: Visual Limpo
 st.markdown("""
 <style>
-    /* Remove a instrução 'Press Enter' */
     div[data-testid="InputInstructions"] > span:nth-child(1) { display: none; }
-    
-    /* Ajuste de Espaçamento dos Inputs */
     div[data-baseweb="input"] > div { padding: 8px 10px; }
-    
-    /* Fontes e Labels */
     input[class] { font-size: 1.1rem; }
     label[data-baseweb="label"] { font-size: 0.9rem; font-weight: 600; margin-bottom: 5px; color: #444; }
-    
-    /* Ajuste da Sidebar */
     section[data-testid="stSidebar"] { padding-top: 20px; }
 </style>
 """, unsafe_allow_html=True)
@@ -52,17 +47,22 @@ def salvar_config(novos_dados):
     with open(CONFIG_FILE, 'w') as f:
         json.dump(novos_dados, f, indent=4)
 
-
-st.sidebar.title("Monitor")
+# ==========================================
+# BARRA LATERAL
+# ==========================================
+st.sidebar.title("Monitor Pro v3.0") # Level 3!
 st.sidebar.markdown("---")
 
-# 1. ÁREA DE BUSCA (Operacional)
+# 1. ÁREA DE BUSCA
 st.sidebar.subheader("Nova Varredura")
 novo_termo = st.sidebar.text_input("Produto", placeholder="Ex: RTX 4060")
 
-c1, c2 = st.sidebar.columns(2)
+st.sidebar.write("Lojas:")
+# Colunas para os checkboxes ficarem bonitos
+c1, c2, c3 = st.sidebar.columns(3) 
 check_kabum = c1.checkbox("Kabum", value=True)
 check_pichau = c2.checkbox("Pichau", value=True)
+check_tera = c3.checkbox("Tera", value=True) # <--- NOVO CHECKBOX
 
 if st.sidebar.button("Iniciar Busca", type="primary"):
     if novo_termo:
@@ -70,17 +70,23 @@ if st.sidebar.button("Iniciar Busca", type="primary"):
         
         status_box = st.sidebar.status("Processando...", expanded=True)
         
+        # --- Lógica de Execução ---
         if check_kabum:
-            status_box.write("Consultando Kabum...")
+            status_box.write("🔎 Consultando Kabum...")
             try: kabum.buscar_produtos(novo_termo)
-            except Exception as e: status_box.error(f"Erro: {e}")
+            except Exception as e: status_box.error(f"Erro Kabum: {e}")
         
         if check_pichau:
-            status_box.write("Consultando Pichau...")
+            status_box.write("🔎 Consultando Pichau...")
             try: pichau.buscar_produtos(novo_termo)
-            except Exception as e: status_box.error(f"Erro: {e}")
+            except Exception as e: status_box.error(f"Erro Pichau: {e}")
 
-        status_box.write("Atualizando base...")
+        if check_tera: # <--- NOVA CHAMADA
+            status_box.write("🔎 Consultando Terabyte...")
+            try: terabyte.buscar_produtos(novo_termo)
+            except Exception as e: status_box.error(f"Erro Tera: {e}")
+
+        status_box.write("⚙️ Atualizando base (ETL)...")
         etl_silver.executar_etl_silver()
         etl_gold.executar_etl_gold()
         
@@ -92,21 +98,18 @@ if st.sidebar.button("Iniciar Busca", type="primary"):
 
 st.sidebar.markdown("---")
 
-# 2. FILTROS GLOBAIS (Visualização)
+# 2. FILTROS GLOBAIS
 st.sidebar.subheader("Filtros de Visualização")
 min_val, max_val = st.sidebar.slider(
     "Faixa de Preço (R$)", 
-    min_value=0.0, 
-    max_value=20000.0, 
-    value=(100.0, 20000.0)
+    0.0, 20000.0, (100.0, 20000.0)
 )
 
 st.sidebar.markdown("---")
 
-# 3. ÁREA ADMIN (Configurações)
+# 3. ÁREA ADMIN
 with st.sidebar.expander("Admin & Configurações"):
     config_atual = carregar_config()
-    
     with st.form("admin_form"):
         st.markdown("**Telegram Config**")
         token = st.text_input("Bot Token", value=config_atual.get("telegram_token", ""), type="password")
@@ -114,7 +117,7 @@ with st.sidebar.expander("Admin & Configurações"):
         
         st.markdown("---")
         st.markdown("**Automação**")
-        freq = st.number_input("Intervalo Varredura (min)", value=int(config_atual.get("frequencia_minutos", 60)))
+        freq = st.number_input("Intervalo (min)", value=int(config_atual.get("frequencia_minutos", 60)))
         
         if st.form_submit_button("Salvar Configurações"):
             salvar_config({
@@ -122,15 +125,14 @@ with st.sidebar.expander("Admin & Configurações"):
                 "telegram_chat_id": chat_id,
                 "frequencia_minutos": freq
             })
-            st.success("Salvo com sucesso!")
+            st.success("Salvo!")
 
     st.write("")
-    st.markdown("**Manutenção**")
     if st.button("Recalcular Base de Dados"):
         with st.spinner("Processando..."):
             etl_silver.executar_etl_silver()
             etl_gold.executar_etl_gold()
-        st.success("Tabelas Otimizadas!")
+        st.success("Otimizado!")
 
 # ==========================================
 # ÁREA PRINCIPAL
@@ -148,7 +150,6 @@ with tab_dashboard:
         if 'ultimo_produto_visto' in st.session_state and st.session_state['ultimo_produto_visto'] in lista_termos:
              index_padrao = lista_termos.index(st.session_state['ultimo_produto_visto'])
 
-        # Selectbox limpo no topo
         termo_selecionado = st.selectbox("Selecione o Produto:", lista_termos, index=index_padrao)
         st.session_state['ultimo_produto_visto'] = termo_selecionado
         
@@ -156,7 +157,7 @@ with tab_dashboard:
             dados_gold_termo = df_gold[df_gold['termo_busca'] == termo_selecionado].sort_values('data_coleta')
             dados_silver_termo = db.carregar_dados_silver(termo_selecionado)
             
-            # Aplica o filtro que agora está na Sidebar
+            # Filtro Lateral aplicado aqui
             if not dados_silver_termo.empty:
                 dados_silver_termo = dados_silver_termo[
                     (dados_silver_termo['preco_final'] >= min_val) & 
@@ -204,15 +205,16 @@ with tab_alertas:
                     st.rerun()
 
         st.subheader("Lista de Alertas Ativos")
+        # Adicionei a coluna Loja na visualização para ver se a Tera aparece
         df_display = produtos_unicos[['termo_busca', 'preco_custo', 'preco_minimo', 'loja_mais_barata']].copy()
-        df_display.columns = ['Produto', 'Preço Alvo', 'Melhor Preço Hoje', 'Loja']
+        df_display.columns = ['Produto', 'Preço Alvo', 'Melhor Preço', 'Loja']
         
         st.dataframe(
             df_display, 
             use_container_width=True,
             column_config={
                 "Preço Alvo": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Melhor Preço Hoje": st.column_config.NumberColumn(format="R$ %.2f")
+                "Melhor Preço": st.column_config.NumberColumn(format="R$ %.2f")
             },
             hide_index=True
         )
