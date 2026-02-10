@@ -14,7 +14,8 @@ if sys.platform == "win32":
 # --- IMPORTAÇÕES DAS LOJAS ---
 import kabum
 import pichau
-import terabyte  # <--- NOVO IMPORT
+import terabyte
+import mercadolivre  # <--- IMPORT NOVO AQUI
 import etl_silver
 import etl_gold
 import db_functions as db
@@ -50,7 +51,7 @@ def salvar_config(novos_dados):
 # ==========================================
 # BARRA LATERAL
 # ==========================================
-st.sidebar.title("Monitor Pro v3.0") # Level 3!
+st.sidebar.title("Monitor Pro v3.0")
 st.sidebar.markdown("---")
 
 # 1. ÁREA DE BUSCA
@@ -58,8 +59,6 @@ st.sidebar.subheader("Nova Varredura")
 novo_termo = st.sidebar.text_input("Produto", placeholder="Ex: RTX 4060")
 
 st.sidebar.write("Lojas:")
-
-# Duas colunas por linha
 c1, c2 = st.sidebar.columns(2)
 
 check_kabum = c1.checkbox("Kabum", value=True)
@@ -67,6 +66,7 @@ check_pichau = c2.checkbox("Pichau", value=True)
 
 c3, c4 = st.sidebar.columns(2)
 check_tera = c3.checkbox("Terabyte", value=True)
+check_ml = c4.checkbox("ML", value=True)
 
 if st.sidebar.button("Iniciar Busca", type="primary"):
     if novo_termo:
@@ -85,10 +85,15 @@ if st.sidebar.button("Iniciar Busca", type="primary"):
             try: pichau.buscar_produtos(novo_termo)
             except Exception as e: status_box.error(f"Erro Pichau: {e}")
 
-        if check_tera: # <--- NOVA CHAMADA
+        if check_tera:
             status_box.write("🔎 Consultando Terabyte...")
             try: terabyte.buscar_produtos(novo_termo)
             except Exception as e: status_box.error(f"Erro Tera: {e}")
+
+        if check_ml:  # <--- CHAMADA NOVA
+            status_box.write("🔎 Consultando Mercado Livre...")
+            try: mercadolivre.buscar_produtos(novo_termo)
+            except Exception as e: status_box.error(f"Erro ML: {e}")
 
         status_box.write("⚙️ Atualizando base (ETL)...")
         etl_silver.executar_etl_silver()
@@ -209,13 +214,13 @@ with tab_alertas:
                     st.rerun()
 
         st.subheader("Lista de Alertas Ativos")
-        # Adicionei a coluna Loja na visualização para ver se a Tera aparece
         df_display = produtos_unicos[['termo_busca', 'preco_custo', 'preco_minimo', 'loja_mais_barata']].copy()
         df_display.columns = ['Produto', 'Preço Alvo', 'Melhor Preço', 'Loja']
         
         st.dataframe(
             df_display, 
-            use_container_width=True,
+            width=None,
+            use_container_width=True, 
             column_config={
                 "Preço Alvo": st.column_config.NumberColumn(format="R$ %.2f"),
                 "Melhor Preço": st.column_config.NumberColumn(format="R$ %.2f")
