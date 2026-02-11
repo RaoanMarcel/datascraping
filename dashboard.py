@@ -8,13 +8,6 @@ import pandas as pd
 import time
 import plotly.express as px
 import io 
-
-# Fix para loop de eventos no Windows
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
-# --- IMPORTAÇÕES ---
-# Certifique-se de que os arquivos kabum.py, pichau.py, etc existem na pasta
 import kabum
 import pichau
 import terabyte
@@ -23,11 +16,13 @@ import etl_silver
 import etl_gold
 import db_functions as db
 
-# Configuração da Página - Alterado "God Mode" para "Analytics" e ícone para gráfico
+# Fix para loop de eventos no Windows
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 st.set_page_config(page_title="Monitor Pro - Analytics", layout="wide", page_icon="📈")
 warnings.filterwarnings('ignore') 
 
-# CSS: Visual Limpo e Profissional
 st.markdown("""
 <style>
     div[data-testid="InputInstructions"] > span:nth-child(1) { display: none; }
@@ -51,15 +46,10 @@ def salvar_config(novos_dados):
     with open(CONFIG_FILE, 'w') as f:
         json.dump(novos_dados, f, indent=4)
 
-# ==========================================
-# BARRA LATERAL
-# ==========================================
-# Alterado diamante para gráfico de barras
 st.sidebar.title("📈 Monitor Pro v3.0")
 st.sidebar.markdown("---")
 
-# 1. ÁREA DE BUSCA
-st.sidebar.subheader("Nova Pesquisa") # "Nova Varredura" -> "Nova Pesquisa"
+st.sidebar.subheader("Nova Pesquisa")
 novo_termo = st.sidebar.text_input("Produto", placeholder="Ex: RTX 4060")
 
 st.sidebar.write("Fontes de Dados:")
@@ -70,7 +60,7 @@ c3, c4 = st.sidebar.columns(2)
 check_tera = c3.checkbox("Terabyte", value=True)
 check_ml = c4.checkbox("ML", value=True)
 
-if st.sidebar.button("Iniciar Coleta", type="primary"): # "Iniciar Busca" -> "Iniciar Coleta"
+if st.sidebar.button("Iniciar Coleta", type="primary"):
     if novo_termo:
         st.session_state['ultimo_produto_visto'] = novo_termo
         status_box = st.sidebar.status("Processando dados...", expanded=True)
@@ -107,14 +97,12 @@ if st.sidebar.button("Iniciar Coleta", type="primary"): # "Iniciar Busca" -> "In
 
 st.sidebar.markdown("---")
 
-# 2. FILTROS GLOBAIS
 st.sidebar.subheader("Filtros de Dados")
 min_val, max_val = st.sidebar.slider("Faixa de Preço (R$)", 0.0, 20000.0, (100.0, 20000.0))
 
 st.sidebar.markdown("---")
 
-# 3. ÁREA ADMIN
-with st.sidebar.expander("Configurações do Sistema"): # "Admin & Configurações"
+with st.sidebar.expander("Configurações do Sistema"):
     config_atual = carregar_config()
     with st.form("admin_form"):
         st.markdown("**Notificações (Telegram)**")
@@ -142,15 +130,8 @@ with st.sidebar.expander("Configurações do Sistema"): # "Admin & Configuraçõ
         except:
             st.error("Falha no envio. Verifique as credenciais.")
 
-# ==========================================
-# ÁREA PRINCIPAL
-# ==========================================
-# Alterado "Sala de Guerra" para "Gestão de Preços"
 tab_dashboard, tab_alertas = st.tabs(["📊 Visão de Mercado", "🎯 Gestão de Precificação"])
 
-# ------------------------------------------
-# ABA 1: DASHBOARD VISUAL (PLOTLY)
-# ------------------------------------------
 with tab_dashboard:
     df_gold = db.carregar_dados_gold()
     
@@ -168,12 +149,10 @@ with tab_dashboard:
             st.session_state['ultimo_produto_visto'] = termo_selecionado
         
         if termo_selecionado:
-            # 1. Carrega dados
             dados_produto = df_gold[df_gold['termo_busca'] == termo_selecionado]
             registro_atual = dados_produto.sort_values('data_coleta').iloc[-1]
             df_historico_raw = db.carregar_dados_silver(termo_selecionado)
             
-            # --- NORMALIZAÇÃO DE COLUNAS ---
             if not df_historico_raw.empty:
                 if 'data_processamento' in df_historico_raw.columns:
                     df_historico_raw = df_historico_raw.rename(columns={'data_processamento': 'data_coleta'})
@@ -190,11 +169,9 @@ with tab_dashboard:
                     st.error(f"⚠️ Erro Crítico: Coluna de data não encontrada. Colunas: {list(df_historico_raw.columns)}")
                     st.stop()
             
-            # --- CÁLCULOS ROBUSTOS ---
             menor_preco = float(registro_atual['preco_minimo'])
             loja_vencedora = registro_atual['loja_mais_barata']
             
-            # Snapshot para Média e Gráfico de Barras
             df_snapshot = pd.DataFrame()
             if not df_historico_raw.empty:
                 ultima_data = df_historico_raw['data_coleta'].max()
@@ -206,7 +183,6 @@ with tab_dashboard:
             else:
                 media_mercado = menor_preco
             
-            # --- RENDERIZAÇÃO KPIS ---
             with col_kpi1:
                 st.metric("Melhor Preço Atual", f"R$ {menor_preco:,.2f}", delta=f"{loja_vencedora}")
             with col_kpi2:
@@ -217,10 +193,8 @@ with tab_dashboard:
 
             st.markdown("---")
 
-            # --- PREPARAÇÃO DOS DADOS PARA GRÁFICOS ---
             if not df_historico_raw.empty:
                 df_historico = df_historico_raw.copy()
-                # Filtro Lateral
                 df_historico = df_historico[
                     (df_historico['preco_final'] >= min_val) & 
                     (df_historico['preco_final'] <= max_val)
@@ -228,9 +202,6 @@ with tab_dashboard:
                 df_historico['data_coleta'] = pd.to_datetime(df_historico['data_coleta'])
                 df_historico = df_historico.sort_values('data_coleta')
 
-                # ===========================
-                # GRÁFICO 1: LINHA DO TEMPO
-                # ===========================
                 st.subheader(f"📈 Evolução de Preços: {termo_selecionado}")
                 fig_line = px.line(
                     df_historico, 
@@ -244,23 +215,17 @@ with tab_dashboard:
                 fig_line.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.1))
                 st.plotly_chart(fig_line, use_container_width=True)
 
-                # ===========================
-                # NOVOS GRÁFICOS (KPIs VISUAIS)
-                # ===========================
                 st.markdown("### 🔎 Detalhamento")
                 col_g1, col_g2 = st.columns(2)
 
-                # Gráfico 2: Barras (Snapshot Atual) - CORRIGIDO
                 with col_g1:
                     st.caption("Comparativo Atual (Menor Preço por Loja)")
                     if not df_snapshot.empty:
-                        # Filtrar snapshot também pelo slider
                         df_snap_filtered = df_snapshot[
                             (df_snapshot['preco_final'] >= min_val) & 
                             (df_snapshot['preco_final'] <= max_val)
                         ]
                         
-                        # FIX: Agrupar por loja e pegar o MÍNIMO.
                         if not df_snap_filtered.empty:
                             df_agrupado = df_snap_filtered.groupby('loja')['preco_final'].min().reset_index()
                             
@@ -280,7 +245,6 @@ with tab_dashboard:
                     else:
                         st.write("Sem dados recentes.")
 
-                # Gráfico 3: Boxplot (Distribuição) - Estabilidade da Loja
                 with col_g2:
                     st.caption("Dispersão e Volatilidade")
                     fig_box = px.box(
@@ -288,7 +252,7 @@ with tab_dashboard:
                         x="loja",
                         y="preco_final",
                         color="loja",
-                        points="all", # Mostra todos os pontos
+                        points="all",
                         labels={"preco_final": "Preço (R$)", "loja": "Fonte"}
                     )
                     fig_box.update_layout(showlegend=False, height=350)
@@ -296,16 +260,12 @@ with tab_dashboard:
 
                 st.markdown("---")
 
-                # ===========================
-                # TABELA + DOWNLOAD
-                # ===========================
                 with st.expander("📄 Dados Analíticos e Exportação", expanded=False):
                     cols_to_show = ['data_coleta', 'nome_produto', 'loja', 'preco_final']
                     cols_present = [c for c in cols_to_show if c in df_historico.columns]
                     
                     df_export = df_historico[cols_present].sort_values('data_coleta', ascending=False)
                     
-                    # Tabela na tela
                     st.dataframe(
                         df_export,
                         use_container_width=True,
@@ -315,11 +275,9 @@ with tab_dashboard:
                         }
                     )
                     
-                    # --- LÓGICA DO BOTÃO DE DOWNLOAD ---
                     col_dl1, col_dl2 = st.columns([1, 4])
                     with col_dl1:
                         try:
-                            # Criar arquivo Excel em memória
                             buffer = io.BytesIO()
                             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                                 df_export.to_excel(writer, index=False, sheet_name='Dados')
@@ -339,9 +297,6 @@ with tab_dashboard:
     else:
         st.info("Utilize o menu lateral para iniciar a coleta.")
 
-# ------------------------------------------
-# ABA 2: ALERTAS ESTRATÉGICOS
-# ------------------------------------------
 with tab_alertas:
     st.header("Análise de Margem e Competitividade")
     st.info("Defina seu custo ou preço alvo para análise de posicionamento de mercado.")
@@ -387,10 +342,10 @@ with tab_alertas:
             diff = meu_p - mercado_p
             if diff > 0: 
                 porcentagem = (diff / mercado_p) * 100
-                if porcentagem > 10: return "🔴 Desvantagem Crítica" # Substituido "MUITO CARO"
+                if porcentagem > 10: return "🔴 Desvantagem Crítica"
                 return "🟠 Acima do Mercado"
             elif diff < 0:
-                if abs(diff) > (mercado_p * 0.15): return "🔵 Oportunidade/Margem" # Substituido "BARATO DEMAIS"
+                if abs(diff) > (mercado_p * 0.15): return "🔵 Oportunidade/Margem"
                 return "🟢 Competitivo"
             else: return "⚪ Neutro/Alinhado"
 
