@@ -1,0 +1,7 @@
+playwright
+streamlit
+pandas
+plotly
+xlsxwriter
+requests
+beautifulsoup4
