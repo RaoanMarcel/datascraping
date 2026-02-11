@@ -6,3 +6,4 @@ xlsxwriter
 requests
 beautifulsoup4
 psycopg2-binary
+undetected-chromedriver
