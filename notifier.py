@@ -28,23 +28,21 @@ def testar_conexao():
     enviar_mensagem("✅ **Sistema de Monitoramento Comercial Ativo!**")
 
 def verificar_alertas():
-    print("🔔 Analisando concorrência...")
+    print(" Analisando concorrência...")
     df = db.carregar_dados_gold()
     
     if df.empty: return
 
-    # Pega apenas os dados mais recentes de cada produto
     df_analise = df.sort_values('data_coleta').drop_duplicates('termo_busca', keep='last')
     
     alertas_enviados = 0
     
     for _, row in df_analise.iterrows():
         produto = row['termo_busca']
-        meu_preco = row.get('preco_custo') # "Meu Preço" no banco
+        meu_preco = row.get('preco_custo') 
         mercado_min = float(row['preco_minimo'])
         loja_rival = row['loja_mais_barata']
 
-        # Se eu não defini meu preço, pular
         if not meu_preco or pd.isna(meu_preco) or meu_preco == 0:
             continue
 
@@ -53,13 +51,12 @@ def verificar_alertas():
         
         msg = ""
 
-        # --- LÓGICA 1: DEFESA (Estou mais caro que o rival) ---
         if diff > 0:
             porcentagem_erro = (diff / mercado_min) * 100
             # Só avisa se eu estiver mais de 2% mais caro (pra evitar centavos)
             if porcentagem_erro > 2:
                 msg = (
-                    f" **ALERTA DE PERDA DE VENDAS** 🚨\n\n"
+                    f" **ALERTA DE PERDA DE VENDAS** \n\n"
                     f" {produto}\n"
                     f" **Você está caro!**\n"
                     f" Seu Preço: R$ {meu_preco:,.2f}\n"
@@ -67,11 +64,9 @@ def verificar_alertas():
                     f" **Sugestão:** Baixe R$ {diff:,.2f} para empatar."
                 )
 
-        # --- LÓGICA 2: ATAQUE (Estou muito barato / Deixando dinheiro na mesa) ---
         elif diff < 0:
             margem_sobra = abs(diff)
             # Se meu preço é muito menor (ex: > 10% abaixo do mercado)
-            # Significa que posso aumentar meu preço e continuar sendo o mais barato
             if margem_sobra > (mercado_min * 0.10):
                 msg = (
                     f" **OPORTUNIDADE DE LUCRO** \n\n"

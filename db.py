@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 import psycopg2
 
-# Configuração centralizada
 DB_CONFIG = {
     "host": "localhost",
     "database": "estoque_inteligente",
     "user": "postgres",
-    "password": "admin", # <--- Sua senha
+    "password": "admin",
     "port": "5432"
 }
 
@@ -18,18 +17,15 @@ def salvar_preco(dados):
     try:
         with psycopg2.connect(**DB_CONFIG) as conn:
             with conn.cursor() as cur:
-                # ATUALIZAÇÃO: Adicionamos a coluna 'termo_busca' no INSERT
                 cur.execute("""
                     INSERT INTO bronze.precos_concorrentes 
                     (produto_nome, preco_raw, concorrente, url_fonte, termo_busca)
                     VALUES (%(nome)s, %(preco)s, %(concorrente)s, %(url)s, %(termo)s);
                 """, {
-                    # Garantimos que os dados estão mapeados corretamente
                     'nome': dados['nome'],
                     'preco': dados['preco'],
                     'concorrente': dados['concorrente'],
                     'url': dados['url'],
-                    # Se o scraper não mandar o termo, salvamos como 'Desconhecido' para não quebrar
                     'termo': dados.get('termo', 'Desconhecido') 
                 })
                 conn.commit()

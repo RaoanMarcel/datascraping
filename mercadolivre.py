@@ -22,7 +22,6 @@ def buscar_produtos(termo):
         url = f"https://lista.mercadolivre.com.br/{termo_url}"
         driver.get(url)
         
-        # Espera carregar a lista
         try:
             WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CLASS_NAME, "ui-search-layout__item"))
@@ -30,18 +29,15 @@ def buscar_produtos(termo):
         except:
             print("⚠️ Demora no carregamento, tentando ler mesmo assim...")
 
-        # Aceita cookies se aparecer (para limpar a tela)
         try:
             btn_cookie = driver.find_element(By.ID, "newCookieDisclaimerButton")
             btn_cookie.click()
         except: pass
 
-        # Scroll suave para carregar imagens e preços dinâmicos
         for i in range(1, 4):
             driver.execute_script(f"window.scrollTo(0, {i * 800});")
             time.sleep(1)
 
-        # 1. Pega os cards de produto (Layout de Lista ou Grade)
         cartoes = driver.find_elements(By.CLASS_NAME, "ui-search-layout__item")
         print(f"   -> Encontrei {len(cartoes)} itens no Mercado Livre.")
         
@@ -49,9 +45,7 @@ def buscar_produtos(termo):
 
         for cartao in cartoes:
             try:
-                # --- A. Extração de Nome e Link ---
                 try:
-                    # Tenta pegar o link principal do card
                     tag_a = cartao.find_element(By.TAG_NAME, "a")
                     link = tag_a.get_attribute("href")
                     
@@ -61,9 +55,9 @@ def buscar_produtos(termo):
                     except:
                         nome = tag_a.get_attribute("title") or tag_a.text
                 except:
-                    continue # Se não tem link ou nome, pula
+                    continue 
 
-                if "O que você procurava" in nome: # Ignora sugestões erradas
+                if "O que você procurava" in nome: 
                     continue
 
                 
@@ -95,7 +89,6 @@ def buscar_produtos(termo):
 
                 preco_final = min(valores_validos)
                 
-                # Formata para texto para salvar no banco
                 texto_preco_final = f"R$ {preco_final:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
                 db.salvar_preco({

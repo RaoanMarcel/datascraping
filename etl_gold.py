@@ -8,8 +8,6 @@ def executar_etl_gold():
     
     conn = psycopg2.connect(**DB_CONFIG)
     
-    # 1. Ler dados da camada Silver
-    # Trazemos tudo para o Pandas para filtrar com inteligência
     query = """
     SELECT termo_busca, concorrente, preco_final, data_processamento 
     FROM silver.precos_limpos
@@ -21,39 +19,29 @@ def executar_etl_gold():
         conn.close()
         return
 
-    # 2. Preparar a lista de dados para inserir no Gold
     dados_gold = []
     
-    # Agrupamos por termo pesquisado (Ex: "iPhone 12", "Razer Viper")
     termos_unicos = df['termo_busca'].unique()
     
     for termo in termos_unicos:
-        # Filtra apenas as linhas desse produto
         df_termo = df[df['termo_busca'] == termo].copy()
         
         if df_termo.empty: continue
         
-        # --- A MÁGICA DA LIMPEZA (OUTLIER REMOVAL) ---
-        # Calculamos a Mediana (o preço que está bem no meio)
         mediana = df_termo['preco_final'].median()
         
-        # REGRA 1: Ignorar preços abaixo de 40% da mediana (Geralmente são cabos, capas, adesivos)
         limite_inferior = mediana * 0.40
         
-        # REGRA 2: Ignorar preços acima de 300% da mediana (Geralmente são PCs completos ou erros)
         limite_superior = mediana * 3.0
         
-        # Criamos um DataFrame LIMPO (sem a sujeira)
         df_limpo = df_termo[
             (df_termo['preco_final'] >= limite_inferior) & 
             (df_termo['preco_final'] <= limite_superior)
         ]
         
-        # Se a limpeza removeu tudo (raro), usamos o original mesmo por segurança
         if df_limpo.empty:
             df_limpo = df_termo
             
-        # --- CÁLCULOS FINAIS ---
         preco_min = df_limpo['preco_final'].min()
         preco_med = df_limpo['preco_final'].mean()
         preco_max = df_limpo['preco_final'].max()
@@ -73,11 +61,9 @@ def executar_etl_gold():
             int(qtd_itens)
         ))
 
-    # 3. Salvar no Banco (Tabela Gold)
     cur = conn.cursor()
     
     try:
-        # Remove dados de HOJE para não duplicar se rodar de novo
         cur.execute("DELETE FROM gold.historico_precos WHERE data_coleta = CURRENT_DATE")
         
         query_insert = """

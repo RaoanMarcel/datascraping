@@ -4,11 +4,10 @@ import asyncio
 import json
 from datetime import datetime
 
-# --- IMPORTAÇÕES DAS LOJAS ---
 import kabum
 import pichau
-import terabyte       # <--- Faltava esse
-import mercadolivre   # <--- Faltava esse
+import terabyte       
+import mercadolivre   
 import etl_silver
 import etl_gold
 import notifier
@@ -28,13 +27,11 @@ def carregar_config():
 def job_rastreamento():
     print(f"\n⏰ [AGENDA] Iniciando varredura completa: {datetime.now()}")
     
-    # Pega os produtos que você já cadastrou no Dashboard (tabela Gold)
     df = db.carregar_dados_gold()
     if df.empty:
-        print("⚠️ Nada para rastrear. Cadastre produtos no Dashboard primeiro.")
+        print(" Nada para rastrear. Cadastre produtos no Dashboard primeiro.")
         return
 
-    # Lista única de termos para buscar
     lista_produtos = df['termo_busca'].unique()
     print(f"📋 Lista de tarefas: {lista_produtos}")
     
@@ -66,13 +63,11 @@ def job_rastreamento():
     
     print(f"🏁 [AGENDA] Fim da rodada: {datetime.now()}")
 
-# --- LOOP PRINCIPAL ---
 print("🤖 Robô 'Vigia Noturno' Iniciado!")
 
 while True:
     job_rastreamento()
     
-    # Lê configuração de tempo (permite mudar o tempo sem fechar o script)
     config = carregar_config()
     minutos_espera = int(config.get("frequencia_minutos", 60))
     

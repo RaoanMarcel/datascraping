@@ -7,7 +7,7 @@ import re
 import db 
 
 def buscar_produtos(termo):
-    print(f"🔄 [TERABYTE] Iniciando busca blindada: {termo}...")
+    print(f" [TERABYTE] Iniciando busca blindada: {termo}...")
     
     options = uc.ChromeOptions()
     options.add_argument("--no-first-run")
@@ -20,21 +20,18 @@ def buscar_produtos(termo):
         url = f"https://www.terabyteshop.com.br/busca?str={termo}"
         driver.get(url)
         
-        # Espera fixa para garantir scripts + Scroll
         time.sleep(4) 
         driver.execute_script("window.scrollTo(0, 1000);")
         time.sleep(1)
         driver.execute_script("window.scrollTo(0, 2500);")
         time.sleep(1)
 
-        # Pega todos os containers de produtos
         cartoes = driver.find_elements(By.CLASS_NAME, "product-item__content")
         
         count_sucesso = 0
 
         for cartao in cartoes:
             try:
-                # 1. Nome e Link
                 try:
                     tag_a = cartao.find_element(By.TAG_NAME, "a")
                     nome = tag_a.get_attribute("title")
@@ -42,7 +39,6 @@ def buscar_produtos(termo):
                     link = tag_a.get_attribute("href")
                 except: continue
 
-                # 2. Preço (Classe Oficial ou Regex)
                 texto_preco = ""
                 try:
                     elem_preco = cartao.find_element(By.CLASS_NAME, "product-item__new-price")
@@ -50,13 +46,11 @@ def buscar_produtos(termo):
                 except: pass 
 
                 if not texto_preco:
-                    # Plano B: Regex no texto todo do cartão
                     match = re.search(r'R\$\s?[\d\.,]+', cartao.text)
                     if match: texto_preco = match.group(0)
                 
                 if not texto_preco: continue
 
-                # 3. Limpeza
                 nums = ''.join([c for c in texto_preco if c.isdigit() or c == ','])
                 preco_float = 0.0
                 if nums:
@@ -64,7 +58,6 @@ def buscar_produtos(termo):
                     if clean.count('.') > 1: clean = clean.replace('.', '', clean.count('.') - 1)
                     preco_float = float(clean)
 
-                # 4. Salvar
                 if preco_float > 50:
                     db.salvar_preco({
                         "nome": nome[:150],

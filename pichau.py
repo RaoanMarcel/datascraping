@@ -1,12 +1,10 @@
 from playwright.sync_api import sync_playwright
 import db
 
-# CORREÇÃO: O nome da função agora é buscar_produtos
 def buscar_produtos(termo):
-    print(f"🕵️‍♂️ [PICHAU] Iniciando busca invisível por: {termo}")
+    print(f" [PICHAU] Iniciando busca invisível por: {termo}")
     
     with sync_playwright() as p:
-        # headless=True com argumentos anti-bot
         browser = p.chromium.launch(
             headless=True,
             args=["--disable-blink-features=AutomationControlled"] 
@@ -23,14 +21,12 @@ def buscar_produtos(termo):
         try:
             page.goto(url, timeout=60000, wait_until="domcontentloaded")
             
-            # Espera a rede acalmar (garante que os produtos carregaram)
             page.wait_for_load_state("networkidle", timeout=10000)
             
-            # Usando a lógica visual
             produtos = page.locator("a[href*='/']").all()
             
             count = 0
-            urls_vistas = set() # Evita duplicatas na mesma rodada
+            urls_vistas = set() 
 
             for prod in produtos:
                 try:
