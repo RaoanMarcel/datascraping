@@ -95,7 +95,7 @@ if st.sidebar.button("Iniciar Busca", type="primary"):
             try: mercadolivre.buscar_produtos(novo_termo)
             except Exception as e: status_box.error(f"Erro ML: {e}")
 
-        status_box.write("⚙️ Atualizando base (ETL)...")
+        status_box.write("Atualizando base (ETL)...")
         etl_silver.executar_etl_silver()
         etl_gold.executar_etl_gold()
         
@@ -184,46 +184,95 @@ with tab_dashboard:
         st.info("Utilize a barra lateral para iniciar uma busca.")
 
 # ABA 2: ALERTAS
+# ... (início do arquivo igual) ...
+
+# ABA 2: ALERTAS ESTRATÉGICOS (B2B)
 with tab_alertas:
-    st.header("Gerenciamento de Alertas")
+    st.header("Inteligência de Preços & Estratégias")
+    st.info("Aqui você define o SEU preço de venda. O sistema dirá se você está competitivo ou perdendo dinheiro.")
     
     df_gold_alertas = db.carregar_dados_gold()
     
     if not df_gold_alertas.empty:
+        # Pega lista única de produtos
         produtos_unicos = df_gold_alertas.sort_values('data_coleta').drop_duplicates('termo_busca', keep='last')
         
+        # --- ÁREA DE CONFIGURAÇÃO ---
         with st.container(border=True):
-            st.subheader("Configurar Novo Alvo")
-            col_a, col_b, col_c = st.columns([2, 1, 1])
+            st.subheader("Definir Meu Preço de Venda")
             
-            with col_a:
-                prod_alvo = st.selectbox("Produto", produtos_unicos['termo_busca'])
-                custo_atual_db = produtos_unicos[produtos_unicos['termo_busca'] == prod_alvo]['preco_custo'].values[0]
-                if pd.isna(custo_atual_db): custo_atual_db = 0.0
+            col_prod, col_price, col_actions = st.columns([2, 1, 1.5])
+            
+            with col_prod:
+                prod_alvo = st.selectbox("Produto em Estoque", produtos_unicos['termo_busca'])
+                
+                # Pega o preço configurado anteriormente
+                dados_prod = produtos_unicos[produtos_unicos['termo_busca'] == prod_alvo]
+                meu_preco_atual = dados_prod['preco_custo'].values[0] # Usando a coluna 'custo' como 'meu preço'
+                if pd.isna(meu_preco_atual): meu_preco_atual = 0.0
 
-            with col_b:
-                novo_custo = st.number_input("Preço Alvo (R$)", value=float(custo_atual_db), step=50.0)
+            with col_price:
+                novo_preco = st.number_input("Meu Preço (R$)", value=float(meu_preco_atual), step=50.0)
             
-            with col_c:
-                st.write("")
-                st.write("")
-                if st.button("Salvar Alvo"):
-                    db.atualizar_custo_gold(prod_alvo, novo_custo)
-                    st.toast("Preço salvo!")
+            with col_actions:
+                st.write("") 
+                st.write("") 
+                if st.button(" Atualizar Meu Preço", use_container_width=True):
+                    db.atualizar_custo_gold(prod_alvo, novo_preco)
+                    st.toast(f"Preço de venda atualizado para R$ {novo_preco}!")
                     time.sleep(1)
                     st.rerun()
 
-        st.subheader("Lista de Alertas Ativos")
-        df_display = produtos_unicos[['termo_busca', 'preco_custo', 'preco_minimo', 'loja_mais_barata']].copy()
-        df_display.columns = ['Produto', 'Preço Alvo', 'Melhor Preço', 'Loja']
+        # --- ÁREA DE INTELIGÊNCIA ---
+        st.subheader("Análise de Competitividade")
         
+        # Preparar dados para exibição
+        df_display = produtos_unicos.copy()
+        
+        # Lógica de Negócio: Diferença entre MEU preço e o MENOR do mercado
+        df_display['diferenca'] = df_display['preco_custo'] - df_display['preco_minimo']
+        
+        # Função para gerar o Status
+        def definir_status(row):
+            meu_p = row['preco_custo']
+            mercado_p = row['preco_minimo']
+            
+            if pd.isna(meu_p) or meu_p == 0:
+                return " Sem Preço"
+            
+            diff = meu_p - mercado_p
+            
+            if diff > 0: 
+                # Meu preço é MAIOR que o mercado (Estou caro)
+                porcentagem = (diff / mercado_p) * 100
+                if porcentagem > 10:
+                    return "🔴 MUITO CARO (Perdendo Venda)"
+                return "🟠 Acima do Mercado"
+            elif diff < 0:
+                # Meu preço é MENOR que o mercado (Estou barato)
+                # Se estou MUITO barato (>15%), é oportunidade de subir margem
+                if abs(diff) > (mercado_p * 0.15):
+                    return "🟢 BARATO DEMAIS (Aumente a Margem!)"
+                return "Competitivo"
+            else:
+                return  "Empate Técnico"
+
+        df_display['Situação'] = df_display.apply(definir_status, axis=1)
+        
+        # Selecionar colunas finais
+        df_final = df_display[['termo_busca', 'preco_custo', 'preco_minimo', 'loja_mais_barata', 'Situação']].copy()
+        df_final.columns = ['Produto', 'Meu Preço', 'Menor Concorrente', 'Loja Rival', 'Estratégia Sugerida']
+        
+        # Exibição com cores condicionais (Pandas Styler não funciona bem no Streamlit data_editor simples, 
+        # então vamos usar column_config para ícones ou deixar o texto falar por si)
         st.dataframe(
-            df_display, 
+            df_final, 
             width=None,
             use_container_width=True, 
             column_config={
-                "Preço Alvo": st.column_config.NumberColumn(format="R$ %.2f"),
-                "Melhor Preço": st.column_config.NumberColumn(format="R$ %.2f")
+                "Meu Preço": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Menor Concorrente": st.column_config.NumberColumn(format="R$ %.2f"),
+                "Estratégia Sugerida": st.column_config.TextColumn(help="Vermelho: Baixe preço. Verde: Suba margem."),
             },
             hide_index=True
         )

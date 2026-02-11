@@ -134,7 +134,7 @@ def renderizar_graficos(dados_gold_termo, dados_silver_termo, custo_bd):
             column_config={
                 "url_fonte": st.column_config.LinkColumn(
                     "Visitar Loja",           # Título da Coluna
-                    display_text="Confira 🔗" # Texto clicável
+                    display_text="Confira " # Texto clicável
                 ),
                 "preco_final": st.column_config.NumberColumn(
                     "Preço Final",
